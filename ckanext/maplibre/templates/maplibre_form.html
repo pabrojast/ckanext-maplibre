@@ -1,0 +1,42 @@
+{# Form template for the MapLibre resource view configuration. #}
+{% import 'macros/form.html' as form %}
+
+{{ form.input('title', id='field-title', label=_('Title'),
+              placeholder=_('eg. Population density'),
+              value=data.title, error=errors.title, classes=['control-medium']) }}
+
+{{ form.markdown('description', id='field-description', label=_('Description'),
+                 placeholder=_('eg. Some text describing the map.'),
+                 value=data.description, error=errors.description) }}
+
+<div class="form-group control-medium">
+  <label class="control-label" for="field-basemap">{{ _('Default basemap') }}</label>
+  <div class="controls">
+    <select id="field-basemap" name="basemap" class="form-control">
+      <option value="osm" {% if data.basemap == 'osm' %}selected{% endif %}>OpenStreetMap</option>
+      <option value="carto-positron" {% if data.basemap == 'carto-positron' %}selected{% endif %}>Carto Positron</option>
+      <option value="esri-imagery" {% if data.basemap == 'esri-imagery' %}selected{% endif %}>Esri Imagery</option>
+    </select>
+  </div>
+</div>
+
+<div class="form-group control-medium">
+  <label class="control-label" for="field-style-source">{{ _('Style source') }}</label>
+  <div class="controls">
+    <select id="field-style-source" name="style_source" class="form-control">
+      <option value="auto" {% if data.style_source == 'auto' %}selected{% endif %}>{{ _('Automatic (MapLibre defaults)') }}</option>
+      <option value="custom_style_json" {% if data.style_source == 'custom_style_json' %}selected{% endif %}>{{ _('Saved view (use Save view button)') }}</option>
+    </select>
+    <p class="help-block">{{ _('Saved views capture map.getStyle() at runtime via the Save view button on the map.') }}</p>
+  </div>
+</div>
+
+{{ form.checkbox('enable_clustering', id='field-clustering',
+                 label=_('Enable point clustering'),
+                 value='true', checked=data.enable_clustering) }}
+
+{{ form.checkbox('show_attributes_popup', id='field-popup',
+                 label=_('Show attribute popup on click'),
+                 value='true', checked=data.show_attributes_popup) }}
+
+<input type="hidden" name="view_state" value="{{ data.view_state or '' }}" />

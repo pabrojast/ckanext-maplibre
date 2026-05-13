@@ -1,0 +1,136 @@
+/* ckanext-maplibre viewer */
+.ckanext-maplibre-shell {
+  position: relative;
+  width: 100%;
+  height: 80vh;
+  min-height: 480px;
+  border: 1px solid #d0d4d9;
+  border-radius: 4px;
+  overflow: hidden;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.ckanext-maplibre-map {
+  position: absolute;
+  inset: 0;
+}
+
+.ckanext-maplibre-controls {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 260px;
+  max-height: calc(100% - 16px);
+  background: rgba(255, 255, 255, 0.96);
+  border-radius: 6px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+  padding: 8px 10px;
+  font-size: 12.5px;
+  overflow-y: auto;
+  z-index: 5;
+}
+
+.ckanext-maplibre-controls h4 {
+  margin: 6px 0 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #555;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 3px;
+}
+
+.ckanext-maplibre-controls .layer-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0;
+}
+
+.ckanext-maplibre-controls input[type=range] {
+  flex: 1;
+}
+
+.ckanext-maplibre-controls label {
+  margin: 0;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.ckanext-maplibre-controls select,
+.ckanext-maplibre-controls input[type=color] {
+  width: 100%;
+  padding: 3px;
+  margin-top: 2px;
+}
+
+.ckanext-maplibre-controls .btn-row {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.ckanext-maplibre-controls button {
+  flex: 1;
+  padding: 5px 8px;
+  background: #206090;
+  border: 1px solid #1a4f76;
+  color: white;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11.5px;
+}
+
+.ckanext-maplibre-controls button:hover {
+  background: #2a78b0;
+}
+
+.ckanext-maplibre-controls button.ghost {
+  background: #f1f3f5;
+  color: #333;
+  border-color: #ccc;
+}
+
+.ckanext-maplibre-pipeline-banner {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  right: 8px;
+  background: #fff3cd;
+  border: 1px solid #ffe69c;
+  color: #664d03;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 12.5px;
+  z-index: 4;
+}
+
+.ckanext-maplibre-pipeline-banner.error {
+  background: #f8d7da;
+  border-color: #f1aeb5;
+  color: #842029;
+}
+
+.ckanext-maplibre-pipeline-banner.success {
+  background: #d1e7dd;
+  border-color: #a3cfbb;
+  color: #0a3622;
+}
+
+.ckanext-maplibre-popup table {
+  font-size: 11.5px;
+  border-collapse: collapse;
+}
+
+.ckanext-maplibre-popup th,
+.ckanext-maplibre-popup td {
+  padding: 2px 6px;
+  vertical-align: top;
+  border-bottom: 1px solid #eee;
+  text-align: left;
+}
+
+.ckanext-maplibre-popup th {
+  color: #555;
+  font-weight: 600;
+}

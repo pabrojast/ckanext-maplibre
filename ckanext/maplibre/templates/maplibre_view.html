@@ -1,0 +1,26 @@
+{# View template for the MapLibre resource view. #}
+{% set use_cdn = h.maplibre_use_cdn_libs() %}
+{% if use_cdn %}
+<link href="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.css" rel="stylesheet" />
+<script src="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/pmtiles@3/dist/pmtiles.js"></script>
+<script src="https://unpkg.com/flatgeobuf@3/dist/flatgeobuf-geojson.min.js"></script>
+<script src="https://unpkg.com/@geomatico/maplibre-cog-protocol@0/dist/index.js"></script>
+{% endif %}
+
+<link rel="stylesheet"
+      href="{{ h.url_for_static('/maplibre_viewer/viewer.css', qualified=False) }}" />
+
+<div class="ckanext-maplibre-shell">
+  <div id="ckanext-maplibre-map" class="ckanext-maplibre-map"></div>
+  <div id="ckanext-maplibre-controls" class="ckanext-maplibre-controls"></div>
+  <div id="ckanext-maplibre-pipeline-banner"
+       class="ckanext-maplibre-pipeline-banner" style="display: none;"></div>
+</div>
+
+<script id="ckanext-maplibre-bootstrap" type="application/json">
+{{ viewer_bootstrap_json | safe }}
+</script>
+
+<script src="{{ h.url_for_static('/maplibre_viewer/viewer.js', qualified=False) }}"
+        defer></script>
