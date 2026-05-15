@@ -1,18 +1,16 @@
 {# Form template for the MapLibre resource view configuration. #}
 {% import 'macros/form.html' as form %}
 
+{# NOTE: title and description are rendered by CKAN's base
+   resource_view_form.html — do NOT render them here or the form will
+   submit two `name="title"` inputs and WebOb groups duplicate values
+   into a list, which gets persisted as the literal string
+   `["Maplibre", ""]`. Only render plugin-specific fields below. #}
+
 {% set _resource_format = (data.get('resource_format')
                            or (resource.format if resource is defined and resource else '')
                            or '').lower() %}
 {% set _is_csv = _resource_format in ('csv', 'tsv', 'csv-geo-au', 'csv-geo-nz', 'csv-geo-us') %}
-
-{{ form.input('title', id='field-title', label=_('Title'),
-              placeholder=_('eg. Population density'),
-              value=data.title, error=errors.title, classes=['control-medium']) }}
-
-{{ form.markdown('description', id='field-description', label=_('Description'),
-                 placeholder=_('eg. Some text describing the map.'),
-                 value=data.description, error=errors.description) }}
 
 <div class="form-group control-medium">
   <label class="control-label" for="field-basemap">{{ _('Default basemap') }}</label>
