@@ -38,9 +38,15 @@
 
   function whenLibsReady(boot, callback) {
     var started = Date.now();
+    // Always defer at least one tick so the rest of this IIFE (which
+    // defines Viewer.prototype.* below) finishes before ``callback`` runs.
+    // Otherwise, when libsAvailable() returns true immediately (e.g. CSV
+    // resources need no extra libs), the callback fires while the
+    // prototype is still bare and ``new Viewer().start()`` blows up with
+    // "(intermediate value).start is not a function".
     (function poll() {
       if (libsAvailable(boot)) {
-        callback();
+        setTimeout(callback, 0);
         return;
       }
       if (Date.now() - started > 15000) {
@@ -204,6 +210,8 @@
 
       if (spec && spec._maplibre_loader === 'flatgeobuf') {
         self.addFlatGeobufSource(sourceId, layerIdBase, res, spec);
+      } else if (spec && spec._maplibre_loader === 'csv') {
+        self.addCsvSource(sourceId, layerIdBase, res, spec);
       } else if (res.kind === 'raster') {
         self.addRasterLayer(sourceId, layerIdBase, res, spec);
       } else if (res.format === 'pmtiles') {
@@ -438,6 +446,200 @@
                                                       res, clustered) {
     this.addGeoJsonLayersForSource(sourceId, layerIdBase, res, clustered);
   };
+
+  // ----- CSV -----
+  // Renders a CSV file as point features. The user picks the lat/lon (or WKT)
+  // columns when creating the view; without those we show a help banner
+  // instead of trying to guess.
+  Viewer.prototype.addCsvSource = function (sourceId, layerIdBase, res, spec) {
+    var fields = res.csvFields || {};
+    var hasLatLon = !!(fields.latitudeField && fields.longitudeField);
+    var hasWkt = !!fields.wktField;
+    if (!hasLatLon && !hasWkt) {
+      flashBanner(
+        'CSV view needs the latitude/longitude columns (or a WKT column). ' +
+        'Edit the view and configure them under "CSV spatial columns".',
+        'error');
+      return;
+    }
+    var emptyFc = { type: 'FeatureCollection', features: [] };
+    this.map.addSource(sourceId, buildGeoJsonSourceSpec(
+      { type: 'geojson', data: emptyFc },
+      emptyFc,
+      this.enableClustering));
+    this.userSources[sourceId] = res;
+    this.addGeoJsonLayersForSource(sourceId, layerIdBase, res,
+                                   this.enableClustering);
+
+    var url = spec._source_url || res.url;
+    var self = this;
+    loadCsvAsGeoJson(url, fields).then(function (fc) {
+      var src = self.map.getSource(sourceId);
+      if (!src) return;
+      src.setData(fc);
+      if (fc.features.length === 0) {
+        flashBanner('CSV loaded but no rows had valid coordinates. ' +
+                    'Check the column names match the CSV header (case-sensitive).',
+                    'error');
+        return;
+      }
+      // Fit to the data extent.
+      var bbox = csvBbox(fc);
+      if (bbox) {
+        self.map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]],
+                           { padding: 40, duration: 0 });
+      }
+    }).catch(function (err) {
+      console.error('CSV load failed', err);
+      flashBanner('Failed to load CSV: ' + err.message, 'error');
+    });
+  };
+
+  function loadCsvAsGeoJson(url, fields) {
+    if (typeof Papa === 'undefined') {
+      return Promise.reject(new Error(
+        'PapaParse library not loaded. Set ckanext.maplibre.cdn_libs=true ' +
+        'or bundle papaparse locally.'
+      ));
+    }
+    return fetch(url, { credentials: 'omit' }).then(function (resp) {
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      return resp.text();
+    }).then(function (text) {
+      var parseOpts = {
+        header: true,
+        skipEmptyLines: true,
+        dynamicTyping: false,
+        delimiter: fields.delimiter || '',  // '' = autodetect
+      };
+      var result = Papa.parse(text, parseOpts);
+      if (result.errors && result.errors.length) {
+        console.warn('CSV parse warnings', result.errors.slice(0, 3));
+      }
+      var rows = result.data || [];
+      var features = [];
+      var latKey = fields.latitudeField;
+      var lonKey = fields.longitudeField;
+      var wktKey = fields.wktField;
+      for (var i = 0; i < rows.length; i++) {
+        var row = rows[i];
+        var geom = null;
+        if (wktKey && row[wktKey]) {
+          geom = parseWkt(String(row[wktKey]));
+        } else if (latKey && lonKey) {
+          var lat = parseFloat(row[latKey]);
+          var lon = parseFloat(row[lonKey]);
+          if (isFinite(lat) && isFinite(lon)) {
+            geom = { type: 'Point', coordinates: [lon, lat] };
+          }
+        }
+        if (!geom) continue;
+        features.push({
+          type: 'Feature',
+          geometry: geom,
+          properties: row,
+        });
+      }
+      return { type: 'FeatureCollection', features: features };
+    });
+  }
+
+  function parseWkt(wkt) {
+    // Minimal WKT parser: handles POINT, LINESTRING, POLYGON, MULTIPOINT,
+    // MULTILINESTRING, MULTIPOLYGON. Returns null if it can't parse.
+    if (!wkt) return null;
+    var s = wkt.trim();
+    var m = /^(POINT|LINESTRING|POLYGON|MULTIPOINT|MULTILINESTRING|MULTIPOLYGON)\s*(Z|M|ZM)?\s*\((.*)\)\s*$/i.exec(s);
+    if (!m) return null;
+    var kind = m[1].toUpperCase();
+    var body = m[3];
+    try {
+      if (kind === 'POINT') {
+        return { type: 'Point', coordinates: parseWktCoord(body) };
+      }
+      if (kind === 'LINESTRING') {
+        return { type: 'LineString',
+                 coordinates: parseWktCoordList(body) };
+      }
+      if (kind === 'MULTIPOINT') {
+        var clean = body.replace(/\(|\)/g, '');
+        return { type: 'MultiPoint',
+                 coordinates: parseWktCoordList(clean) };
+      }
+      if (kind === 'POLYGON') {
+        return { type: 'Polygon',
+                 coordinates: parseWktRings(body) };
+      }
+      if (kind === 'MULTILINESTRING') {
+        return { type: 'MultiLineString',
+                 coordinates: parseWktRings(body) };
+      }
+      if (kind === 'MULTIPOLYGON') {
+        return { type: 'MultiPolygon',
+                 coordinates: parseWktPolys(body) };
+      }
+    } catch (e) {
+      return null;
+    }
+    return null;
+  }
+
+  function parseWktCoord(text) {
+    var nums = text.trim().split(/\s+/).map(Number);
+    if (!isFinite(nums[0]) || !isFinite(nums[1])) return null;
+    return [nums[0], nums[1]];
+  }
+
+  function parseWktCoordList(text) {
+    return text.split(',').map(function (pair) {
+      return parseWktCoord(pair);
+    }).filter(Boolean);
+  }
+
+  function parseWktRings(text) {
+    // POLYGON((x y, x y),(x y, x y))
+    var rings = [];
+    var depth = 0, start = 0;
+    for (var i = 0; i < text.length; i++) {
+      if (text[i] === '(') { if (depth === 0) start = i + 1; depth++; }
+      else if (text[i] === ')') { depth--; if (depth === 0) {
+          rings.push(parseWktCoordList(text.substring(start, i))); } }
+    }
+    return rings;
+  }
+
+  function parseWktPolys(text) {
+    // MULTIPOLYGON(((x y, x y)),((x y, x y)))
+    var polys = [];
+    var depth = 0, start = 0;
+    for (var i = 0; i < text.length; i++) {
+      if (text[i] === '(') {
+        if (depth === 0) start = i + 1;
+        depth++;
+      } else if (text[i] === ')') {
+        depth--;
+        if (depth === 0) {
+          polys.push(parseWktRings(text.substring(start, i)));
+        }
+      }
+    }
+    return polys;
+  }
+
+  function csvBbox(fc) {
+    var bbox = null;
+    fc.features.forEach(function (f) {
+      if (!f.geometry || !f.geometry.coordinates) return;
+      eachCoord(f.geometry.coordinates, function (lon, lat) {
+        if (!bbox) bbox = [lon, lat, lon, lat];
+        if (lon < bbox[0]) bbox[0] = lon;
+        if (lat < bbox[1]) bbox[1] = lat;
+        if (lon > bbox[2]) bbox[2] = lon;
+        if (lat > bbox[3]) bbox[3] = lat;
+      });
+    });
+    return bbox;
+  }
 
   // -----------------------------------------------------------------
   // Controls (right-side panel)
@@ -806,6 +1008,9 @@
         typeof flatgeobuf === 'undefined') return false;
     if (resourceListHasFormat(boot, 'cog', 'tif', 'tiff', 'geotiff') &&
         typeof MaplibreCOGProtocol === 'undefined') return false;
+    if (resourceListHasFormat(boot, 'csv', 'tsv', 'csv-geo-au',
+                              'csv-geo-nz', 'csv-geo-us') &&
+        typeof Papa === 'undefined') return false;
     return true;
   }
 

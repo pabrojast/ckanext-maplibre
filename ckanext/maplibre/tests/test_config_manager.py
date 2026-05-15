@@ -18,6 +18,9 @@ from ckanext.maplibre.config_manager import (
     ({'format': 'shp'}, True),
     ({'format': 'wms'}, True),
     ({'format': 'wfs'}, False),
+    ({'format': 'csv'}, True),
+    ({'format': 'CSV-geo-au'}, True),
+    ({'format': 'tsv'}, True),
     ({'format': ''}, False),
     ({'format': 'xlsx'}, False),
     ({'url': 'http://example.com/data.pmtiles'}, True),
@@ -25,6 +28,20 @@ from ckanext.maplibre.config_manager import (
 def test_can_view_resource(resource, expected):
     cm = ConfigManager()
     assert cm.can_view_resource(resource) is expected
+
+
+def test_is_tabular():
+    assert ConfigManager.is_tabular({'format': 'csv'})
+    assert ConfigManager.is_tabular({'format': 'TSV'})
+    assert ConfigManager.is_tabular({'format': 'csv-geo-us'})
+    assert not ConfigManager.is_tabular({'format': 'geojson'})
+    assert not ConfigManager.is_tabular({'format': 'pmtiles'})
+
+
+def test_csv_does_not_need_pipeline():
+    # CSV is handled client-side by the viewer, not the conversion pipeline.
+    assert not ConfigManager.needs_pipeline({'format': 'csv'})
+    assert not ConfigManager.needs_pipeline({'format': 'tsv'})
 
 
 def test_needs_pipeline_skips_already_cloud_native():

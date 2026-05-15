@@ -10,8 +10,13 @@ VECTOR_FORMATS = {'geojson', 'json', 'shp', 'zip', 'fgb', 'flatgeobuf',
 RASTER_FORMATS = {'tif', 'tiff', 'geotiff', 'cog'}
 # Keep this aligned with ResourceUtils._url_and_spec().
 SERVICE_FORMATS = {'wms', 'wmts'}
+# CSV needs the user to pick lat/lon (or wkt) columns at view-creation time;
+# the viewer parses it client-side into a GeoJSON source.
+TABULAR_FORMATS = {'csv', 'tsv', 'csv-geo-au', 'csv-geo-nz', 'csv-geo-us'}
 
-SUPPORTED_FORMATS = sorted(VECTOR_FORMATS | RASTER_FORMATS | SERVICE_FORMATS)
+SUPPORTED_FORMATS = sorted(
+    VECTOR_FORMATS | RASTER_FORMATS | SERVICE_FORMATS | TABULAR_FORMATS
+)
 SUPPORTED_FORMATS_REGEX = '^(' + '|'.join(re.escape(s) for s in SUPPORTED_FORMATS) + ')$'
 
 PIPELINE_RAW_VECTOR = {'shp', 'zip', 'kml', 'gpkg'}
@@ -107,6 +112,10 @@ class ConfigManager:
         return ConfigManager.resource_format(resource) in VECTOR_FORMATS
 
     @staticmethod
+    def is_tabular(resource: Dict) -> bool:
+        return ConfigManager.resource_format(resource) in TABULAR_FORMATS
+
+    @staticmethod
     def is_raster(resource: Dict) -> bool:
         return ConfigManager.resource_format(resource) in RASTER_FORMATS
 
@@ -134,6 +143,11 @@ class ConfigManager:
             'enable_clustering': [default(False), boolean_validator],
             'show_attributes_popup': [default(True), boolean_validator],
             'basemap': [ignore_missing],
+            # CSV / tabular: column names for spatial interpretation.
+            'csv_latitude_field': [ignore_missing],
+            'csv_longitude_field': [ignore_missing],
+            'csv_wkt_field': [ignore_missing],
+            'csv_delimiter': [ignore_missing],
             'show_fields': [ignore_missing],
             'filterable': [default(True), boolean_validator],
             '__extras': [ignore_missing],

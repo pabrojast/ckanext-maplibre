@@ -1,6 +1,11 @@
 {# Form template for the MapLibre resource view configuration. #}
 {% import 'macros/form.html' as form %}
 
+{% set _resource_format = (data.get('resource_format')
+                           or (resource.format if resource is defined and resource else '')
+                           or '').lower() %}
+{% set _is_csv = _resource_format in ('csv', 'tsv', 'csv-geo-au', 'csv-geo-nz', 'csv-geo-us') %}
+
 {{ form.input('title', id='field-title', label=_('Title'),
               placeholder=_('eg. Population density'),
               value=data.title, error=errors.title, classes=['control-medium']) }}
@@ -30,6 +35,52 @@
     <p class="help-block">{{ _('Saved views capture map.getStyle() at runtime via the Save view button on the map.') }}</p>
   </div>
 </div>
+
+{% if _is_csv or data.csv_latitude_field or data.csv_longitude_field or data.csv_wkt_field %}
+<fieldset class="form-group control-medium" id="maplibre-csv-fields"
+          style="border:1px solid #d0d4d9;padding:8px 12px;border-radius:4px;">
+  <legend style="font-size:13px;font-weight:600;width:auto;border:none;margin:0 0 6px;">
+    {{ _('CSV spatial columns') }}
+  </legend>
+  <p class="help-block" style="margin-top:0;">
+    {{ _('Configure how the CSV rows become points. Use latitude + longitude OR a WKT column (e.g. POINT(-70.6 -33.4)). Column names must match the CSV header exactly (case-sensitive).') }}
+  </p>
+
+  {{ form.input('csv_latitude_field', id='field-csv-lat',
+                label=_('Latitude column'),
+                placeholder='lat',
+                value=data.csv_latitude_field,
+                error=errors.csv_latitude_field,
+                classes=['control-medium']) }}
+
+  {{ form.input('csv_longitude_field', id='field-csv-lon',
+                label=_('Longitude column'),
+                placeholder='lon',
+                value=data.csv_longitude_field,
+                error=errors.csv_longitude_field,
+                classes=['control-medium']) }}
+
+  {{ form.input('csv_wkt_field', id='field-csv-wkt',
+                label=_('WKT column (optional)'),
+                placeholder='geometry',
+                value=data.csv_wkt_field,
+                error=errors.csv_wkt_field,
+                classes=['control-medium']) }}
+
+  <div class="form-group control-medium">
+    <label class="control-label" for="field-csv-delimiter">{{ _('Delimiter') }}</label>
+    <div class="controls">
+      <select id="field-csv-delimiter" name="csv_delimiter" class="form-control">
+        <option value="" {% if not data.csv_delimiter %}selected{% endif %}>{{ _('Auto-detect') }}</option>
+        <option value="," {% if data.csv_delimiter == ',' %}selected{% endif %}>,</option>
+        <option value=";" {% if data.csv_delimiter == ';' %}selected{% endif %}>;</option>
+        <option value="\t" {% if data.csv_delimiter == '\t' %}selected{% endif %}>{{ _('tab') }}</option>
+        <option value="|" {% if data.csv_delimiter == '|' %}selected{% endif %}>|</option>
+      </select>
+    </div>
+  </div>
+</fieldset>
+{% endif %}
 
 {{ form.checkbox('enable_clustering', id='field-clustering',
                  label=_('Enable point clustering'),

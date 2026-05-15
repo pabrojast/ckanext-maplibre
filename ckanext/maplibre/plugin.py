@@ -138,7 +138,13 @@ class MapLibreViewPlugin(plugins.SingletonPlugin):
             'maplibre_get_sld_files': self._helper_get_sld_files,
             'maplibre_basemaps_json': self._helper_basemaps_json,
             'maplibre_use_cdn_libs': lambda: self.config_manager.cdn_libs,
+            'maplibre_asset_version': self._helper_asset_version,
         }
+
+    def _helper_asset_version(self) -> str:
+        """Cache-buster for /maplibre_viewer/* static assets."""
+        from . import __version__
+        return __version__
 
     def _helper_pipeline_status(self, resource_id: str) -> Dict:
         from .pipeline.jobs import get_status
@@ -207,10 +213,17 @@ class MapLibreViewPlugin(plugins.SingletonPlugin):
         derived_resources = self._helper_get_derived_resources(
             package, resource.get('id', ''))
 
+        csv_config = {
+            'latitude_field': resource_view.get('csv_latitude_field') or '',
+            'longitude_field': resource_view.get('csv_longitude_field') or '',
+            'wkt_field': resource_view.get('csv_wkt_field') or '',
+            'delimiter': resource_view.get('csv_delimiter') or '',
+        }
         viewable_resources = self.resource_utils.build_viewable_resources(
             resource=resource,
             derived=derived_resources,
             package_private=package.get('private'),
+            csv_config=csv_config,
         )
 
         try:

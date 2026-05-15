@@ -152,11 +152,16 @@ class ResourceUtils:
     # ------------------------------------------------------------------
     def build_viewable_resources(self, resource: Dict,
                                  derived: Optional[List[Dict]] = None,
-                                 package_private: Optional[bool] = None) -> List[Dict]:
+                                 package_private: Optional[bool] = None,
+                                 csv_config: Optional[Dict] = None) -> List[Dict]:
         """Return a list of MapLibre-source-ready descriptors.
 
         Each item: {id, label, kind, format, url, source_resource_id,
-        derived_from, is_primary}.
+        derived_from, is_primary}. ``csv_config`` (when given) carries the
+        user-picked spatial column names for CSV resources::
+
+            {'latitude_field': 'lat', 'longitude_field': 'lon',
+             'wkt_field': '', 'delimiter': ','}
         """
         derived = derived or []
         is_private = (
@@ -166,20 +171,26 @@ class ResourceUtils:
         candidates: List[Dict] = []
         if derived:
             for res in derived:
-                desc = self._descriptor_for(res, is_private=is_private,
-                                            derived_from=resource.get('id'))
+                desc = self._descriptor_for(
+                    res, is_private=is_private,
+                    derived_from=resource.get('id'),
+                    csv_config=csv_config,
+                )
                 if desc:
                     candidates.append(desc)
         # Always include the primary resource last so users can still see the
         # original if a derived one is broken.
-        primary = self._descriptor_for(resource, is_private=is_private)
+        primary = self._descriptor_for(
+            resource, is_private=is_private, csv_config=csv_config,
+        )
         if primary:
             primary['is_primary'] = True
             candidates.append(primary)
         return candidates
 
     def _descriptor_for(self, resource: Dict, is_private: bool,
-                        derived_from: Optional[str] = None) -> Optional[Dict]:
+                        derived_from: Optional[str] = None,
+                        csv_config: Optional[Dict] = None) -> Optional[Dict]:
         if not resource:
             return None
         from .config_manager import ConfigManager
@@ -194,7 +205,7 @@ class ResourceUtils:
         kind, maplibre_url, source_spec = self._url_and_spec(fmt, url)
         if not kind:
             return None
-        return {
+        descriptor = {
             'id': resource.get('id'),
             'label': resource.get('name') or resource.get('description')
                      or resource.get('id'),
@@ -206,6 +217,16 @@ class ResourceUtils:
             'derivedFrom': derived_from,
             'is_primary': False,
         }
+        # CSV: the viewer needs to know which columns hold coordinates.
+        if (csv_config and ConfigManager.is_tabular(resource)
+                and source_spec.get('_maplibre_loader') == 'csv'):
+            descriptor['csvFields'] = {
+                'latitudeField': (csv_config.get('latitude_field') or '').strip(),
+                'longitudeField': (csv_config.get('longitude_field') or '').strip(),
+                'wktField': (csv_config.get('wkt_field') or '').strip(),
+                'delimiter': csv_config.get('delimiter') or '',
+            }
+        return descriptor
 
     def _resolve_resource_url(self, resource: Dict, is_private: bool) -> str:
         """Pick the best URL for a resource (proxy if private, raw otherwise)."""
@@ -288,6 +309,18 @@ class ResourceUtils:
                 'type': 'raster',
                 'tiles': [url],
                 'tileSize': 256,
+            }
+        if fmt in ('csv', 'tsv', 'csv-geo-au', 'csv-geo-nz', 'csv-geo-us'):
+            # CSV is rendered client-side: viewer.js fetches the file, picks
+            # the lat/lon (or wkt) columns the user configured on the view,
+            # and feeds a synthesized GeoJSON FeatureCollection into a
+            # geojson source. The actual column names are appended to the
+            # spec by the plugin layer (csvFields).
+            return 'vector', url, {
+                'type': 'geojson',
+                'data': {'type': 'FeatureCollection', 'features': []},
+                '_maplibre_loader': 'csv',
+                '_source_url': url,
             }
         # SHP / ZIP / KML / GPKG handled by the pipeline; if it arrives raw
         # here the viewer just shows a "processing" banner.
