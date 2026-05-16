@@ -13,7 +13,7 @@ except (IOError, OSError):
 
 setup(
     name='ckanext-maplibre',
-    version='0.1.2',
+    version='0.1.3',
 
     description=(
         'CKAN resource view powered by MapLibre GL JS + PMTiles + '

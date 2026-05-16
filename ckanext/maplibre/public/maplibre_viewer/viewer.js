@@ -449,19 +449,10 @@
 
   // ----- CSV -----
   // Renders a CSV file as point features. The user picks the lat/lon (or WKT)
-  // columns when creating the view; without those we show a help banner
-  // instead of trying to guess.
+  // columns when creating the view; if they leave them empty, we auto-detect
+  // from the CSV headers (common English/Spanish names).
   Viewer.prototype.addCsvSource = function (sourceId, layerIdBase, res, spec) {
     var fields = res.csvFields || {};
-    var hasLatLon = !!(fields.latitudeField && fields.longitudeField);
-    var hasWkt = !!fields.wktField;
-    if (!hasLatLon && !hasWkt) {
-      flashBanner(
-        'CSV view needs the latitude/longitude columns (or a WKT column). ' +
-        'Edit the view and configure them under "CSV spatial columns".',
-        'error');
-      return;
-    }
     var emptyFc = { type: 'FeatureCollection', features: [] };
     this.map.addSource(sourceId, buildGeoJsonSourceSpec(
       { type: 'geojson', data: emptyFc },
@@ -477,10 +468,38 @@
       var src = self.map.getSource(sourceId);
       if (!src) return;
       src.setData(fc);
+
+      // Tell the user if we auto-detected the spatial columns.
+      if (fc._detected) {
+        var d = fc._detected;
+        if (d.wktField) {
+          flashBanner('CSV: auto-detected WKT column "' + d.wktField + '"',
+                      'success');
+        } else if (d.latitudeField || d.longitudeField) {
+          flashBanner('CSV: auto-detected lat="' + (d.latitudeField || '?') +
+                      '", lon="' + (d.longitudeField || '?') + '"',
+                      'success');
+        }
+      }
+
       if (fc.features.length === 0) {
-        flashBanner('CSV loaded but no rows had valid coordinates. ' +
-                    'Check the column names match the CSV header (case-sensitive).',
-                    'error');
+        var resolved = fc._resolved || {};
+        var noColumns = !resolved.latitudeField && !resolved.longitudeField
+                        && !resolved.wktField;
+        if (noColumns) {
+          flashBanner(
+            'CSV view needs lat/lon (or WKT) columns. Auto-detection found ' +
+            'no obvious matches in the headers — edit the view and configure ' +
+            'them under "CSV spatial columns".',
+            'error');
+        } else {
+          flashBanner(
+            'CSV loaded with columns lat="' + (resolved.latitudeField || '') +
+            '", lon="' + (resolved.longitudeField || '') + '"' +
+            (resolved.wktField ? ', wkt="' + resolved.wktField + '"' : '') +
+            ' but no rows produced valid coordinates. Check the values.',
+            'error');
+        }
         return;
       }
       // Fit to the data extent.
@@ -510,17 +529,46 @@
         header: true,
         skipEmptyLines: true,
         dynamicTyping: false,
-        delimiter: fields.delimiter || '',  // '' = autodetect
+        delimiter: (fields && fields.delimiter) || '',  // '' = autodetect
       };
       var result = Papa.parse(text, parseOpts);
       if (result.errors && result.errors.length) {
         console.warn('CSV parse warnings', result.errors.slice(0, 3));
       }
       var rows = result.data || [];
+      var headers = (result.meta && result.meta.fields) ||
+                    (rows[0] ? Object.keys(rows[0]) : []);
+
+      // Resolve effective lat/lon/wkt columns: user-configured values take
+      // precedence; anything missing falls back to auto-detection.
+      var configured = fields || {};
+      var resolved = {
+        latitudeField: configured.latitudeField || '',
+        longitudeField: configured.longitudeField || '',
+        wktField: configured.wktField || '',
+      };
+      var detected = null;
+      var needsDetect = !resolved.wktField &&
+                        (!resolved.latitudeField || !resolved.longitudeField);
+      if (needsDetect) {
+        detected = autoDetectCsvFields(headers);
+        if (!resolved.wktField && detected.wktField &&
+            !resolved.latitudeField && !resolved.longitudeField) {
+          // Prefer WKT only when no lat/lon was even guessed.
+          resolved.wktField = detected.wktField;
+        }
+        if (!resolved.latitudeField && detected.latitudeField) {
+          resolved.latitudeField = detected.latitudeField;
+        }
+        if (!resolved.longitudeField && detected.longitudeField) {
+          resolved.longitudeField = detected.longitudeField;
+        }
+      }
+
       var features = [];
-      var latKey = fields.latitudeField;
-      var lonKey = fields.longitudeField;
-      var wktKey = fields.wktField;
+      var latKey = resolved.latitudeField;
+      var lonKey = resolved.longitudeField;
+      var wktKey = resolved.wktField;
       for (var i = 0; i < rows.length; i++) {
         var row = rows[i];
         var geom = null;
@@ -540,8 +588,89 @@
           properties: row,
         });
       }
-      return { type: 'FeatureCollection', features: features };
+      return {
+        type: 'FeatureCollection',
+        features: features,
+        _resolved: resolved,
+        _detected: detected,
+      };
     });
+  }
+
+  // Auto-detect lat/lon/wkt columns from CSV headers. Returns
+  // {latitudeField, longitudeField, wktField} (any may be ''). The match
+  // is case-insensitive and ignores non-alphanumeric chars; candidates
+  // are scanned in priority order so "longitude" beats "x" when both
+  // exist.
+  function autoDetectCsvFields(headers) {
+    var out = { latitudeField: '', longitudeField: '', wktField: '' };
+    if (!headers || !headers.length) return out;
+
+    var normalized = headers.map(function (h) {
+      return {
+        raw: h,
+        norm: String(h || '').toLowerCase().replace(/[^a-z0-9]/g, ''),
+      };
+    }).filter(function (h) { return h.norm; });
+
+    var LAT_NAMES = [
+      'latitude', 'latitud',
+      'decimallatitude', 'decimallat',
+      'latitudedeg', 'latituddeg', 'latdeg', 'latdegrees',
+      'latitudedd', 'latituddd', 'latdd',
+      'lat',
+      'gpslat', 'gpslatitude', 'gpslatitud',
+      'ycoord', 'ycoordinate', 'coordy',
+      'ylat', 'latitudey',
+      // Last resort — single-letter axes are ambiguous (could be screen X/Y),
+      // so they come last.
+      'y',
+    ];
+    var LON_NAMES = [
+      'longitude', 'longitud',
+      'decimallongitude', 'decimallon', 'decimallng', 'decimallong',
+      'longitudedeg', 'longituddeg', 'londeg', 'lngdeg',
+      'longitudedd', 'longituddd', 'londd', 'lngdd',
+      'long', 'lon', 'lng',
+      'gpslon', 'gpslng', 'gpslongitude', 'gpslongitud',
+      'xcoord', 'xcoordinate', 'coordx',
+      'xlon', 'xlng', 'longitudex',
+      'x',
+    ];
+    var WKT_NAMES = [
+      'wkt', 'wktgeometry', 'wktgeom', 'geomwkt', 'geometrywkt',
+      'thegeom', 'geom', 'geometry',
+    ];
+
+    function findFirst(candidates) {
+      for (var i = 0; i < candidates.length; i++) {
+        for (var j = 0; j < normalized.length; j++) {
+          if (normalized[j].norm === candidates[i]) {
+            return normalized[j].raw;
+          }
+        }
+      }
+      return '';
+    }
+
+    // Prefer paired lat/lon when both are present; only fall back to WKT
+    // if no lat/lon was found.
+    var lat = findFirst(LAT_NAMES);
+    var lon = findFirst(LON_NAMES);
+    if (lat && lon) {
+      out.latitudeField = lat;
+      out.longitudeField = lon;
+      return out;
+    }
+    var wkt = findFirst(WKT_NAMES);
+    if (wkt) {
+      out.wktField = wkt;
+      return out;
+    }
+    // Partial match — let the caller decide if it's usable.
+    out.latitudeField = lat;
+    out.longitudeField = lon;
+    return out;
   }
 
   function parseWkt(wkt) {

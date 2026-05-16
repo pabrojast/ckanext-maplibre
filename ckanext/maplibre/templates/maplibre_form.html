@@ -41,7 +41,7 @@
     {{ _('CSV spatial columns') }}
   </legend>
   <p class="help-block" style="margin-top:0;">
-    {{ _('Configure how the CSV rows become points. Use latitude + longitude OR a WKT column (e.g. POINT(-70.6 -33.4)). Column names must match the CSV header exactly (case-sensitive).') }}
+    {{ _('Leave empty to auto-detect from the CSV headers (matches common names like "lat"/"latitude"/"latitud" and "lon"/"lng"/"longitude"/"longitud", case-insensitive). Set explicit values to override.') }}
   </p>
 
   {{ form.input('csv_latitude_field', id='field-csv-lat',
