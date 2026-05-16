@@ -840,6 +840,12 @@
   Viewer.prototype.saveView = function (button) {
     var self = this;
     var center = this.map.getCenter();
+    // map.getStyle() inlines the FULL data of every geojson source — for
+    // CSV/FlatGeobuf that's tens of MB of features. Strip the data from
+    // any source the viewer manages (they get re-built from
+    // viewableResources on load), and mark them transient so the server
+    // sanitizer removes them entirely from the persisted style.
+    var stylePruned = pruneStyleForSave(this.map.getStyle(), this.userSources);
     var payload = {
       view_state: {
         version: 1,
@@ -849,7 +855,7 @@
           bearing: this.map.getBearing(),
           pitch: this.map.getPitch(),
         },
-        style: this.map.getStyle(),
+        style: stylePruned,
         ui: {
           basemap: this.basemapKey,
           active_layer_ids: this.userLayers
@@ -861,6 +867,20 @@
         },
       },
     };
+
+    var body = JSON.stringify(payload);
+    // Belt-and-suspenders: warn early if we're about to send something
+    // bigger than the server limit (default 4 MB) rather than letting
+    // nginx return an opaque 413.
+    var SOFT_MAX_BYTES = 3 * 1024 * 1024;
+    if (body.length > SOFT_MAX_BYTES) {
+      flashBanner(
+        'Saved view is ' + Math.round(body.length / 1024) +
+        ' KB — too large. Try reducing styling/customizations.',
+        'error');
+      return;
+    }
+
     if (button) {
       button.disabled = true;
       button.textContent = 'Saving…';
@@ -869,14 +889,21 @@
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: body,
     }).then(function (res) {
-      return res.json().then(function (body) {
-        return { ok: res.ok, body: body };
+      return res.text().then(function (raw) {
+        var parsed = null;
+        try { parsed = JSON.parse(raw); } catch (e) { /* not JSON */ }
+        return { ok: res.ok, status: res.status, body: parsed, raw: raw };
       });
     }).then(function (result) {
-      if (!result.ok || !result.body.success) {
-        throw new Error(result.body.error || 'Save failed');
+      if (!result.ok || !result.body || !result.body.success) {
+        var msg = (result.body && (result.body.error || result.body.message))
+          || ('HTTP ' + result.status +
+              (result.status === 413
+                 ? ' — server (probably nginx) rejected the payload.'
+                 : ''));
+        throw new Error(msg);
       }
       flashBanner('View saved', 'success');
     }).catch(function (err) {
@@ -888,6 +915,26 @@
       }
     });
   };
+
+  function pruneStyleForSave(style, userSources) {
+    if (!style || typeof style !== 'object') return style;
+    var pruned = clone(style) || {};
+    if (pruned.sources && typeof pruned.sources === 'object') {
+      Object.keys(pruned.sources).forEach(function (srcId) {
+        var src = pruned.sources[srcId];
+        if (!src || typeof src !== 'object') return;
+        var managed = !!(userSources && userSources[srcId]);
+        // We never want to persist inline geojson data — it explodes the
+        // payload size for CSV/FlatGeobuf-backed sources. The viewer
+        // re-loads the data from viewableResources on next render.
+        if (src.type === 'geojson') {
+          src.data = { type: 'FeatureCollection', features: [] };
+          if (managed) src._maplibre_transient = true;
+        }
+      });
+    }
+    return pruned;
+  }
 
   // -----------------------------------------------------------------
   // Popup
